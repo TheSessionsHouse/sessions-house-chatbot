@@ -1,10 +1,10 @@
 import os
-import fitz  # PyMuPDF
+import fitz
 import requests
 from bs4 import BeautifulSoup
 import google.generativeai as genai
 from google.generativeai.types import HarmCategory, HarmBlockThreshold
-from flask import Flask, request, jsonify
+from flask import Flask, request, jsonify, Response, stream_with_context
 from flask_cors import CORS
 from dotenv import load_dotenv
 import time
@@ -59,20 +59,16 @@ def read_content_from_url(url):
         response.raise_for_status()
         content_type = response.headers.get('content-type', '').lower()
         if 'application/pdf' in content_type:
-            print(f"--- Reading PDF from URL: {url}")
             with fitz.open(stream=io.BytesIO(response.content)) as doc:
                 return "".join(page.get_text() for page in doc)
         elif 'text/html' in content_type:
-            print(f"--- Scraping HTML from URL: {url}")
             soup = BeautifulSoup(response.content, 'html.parser')
             for s in soup(["script", "style", "nav", "footer", "header"]): s.decompose()
             text = soup.get_text()
             lines = (line.strip() for line in text.splitlines())
             chunks = (phrase.strip() for line in lines for phrase in line.split("  "))
             return '\n'.join(chunk for chunk in chunks if chunk)
-        else:
-            print(f"--- Skipping unsupported content type '{content_type}' at URL: {url}")
-            return ""
+        else: return ""
     except requests.RequestException as e:
         print(f"--- Error fetching or reading URL {url}: {e}")
         return ""
@@ -81,7 +77,6 @@ def load_knowledge_base():
     """Builds the knowledge base from local files and web URLs."""
     global KNOWLEDGE_BASE_TEXT, knowledge_base_loaded
     if knowledge_base_loaded: return
-    print("--- Starting knowledge base load...")
     all_text = []
     if os.path.isdir(KNOWLEDGE_DIR):
         for filename in os.listdir(KNOWLEDGE_DIR):
@@ -107,20 +102,45 @@ def load_knowledge_base():
         print("--- Knowledge base loaded successfully.")
         knowledge_base_loaded = True
 
-def log_lead_to_sheet(lead_data):
-    """Logs structured lead data to the Google Sheet."""
-    if not GSHEET_CLIENT or not isinstance(lead_data, dict): return
+def log_conversation_summary(history):
+    """Summarizes and logs a conversation to the Google Sheet."""
+    if not GSHEET_CLIENT: return
     try:
+        # Ask the AI to summarize the conversation and extract lead details
+        summary_prompt = f"""
+        Based on the following conversation, please provide a one-sentence summary and extract any potential lead information (name, contact details, event type, guest count, desired date).
+
+        Conversation:
+        {history}
+
+        Your output MUST be a single, valid JSON object with the keys "summary", "contact", and "details".
+        """
+        
+        summary_response = model.generate_content(summary_prompt)
+        
+        raw_text = summary_response.text
+        json_start_index = raw_text.find('{')
+        json_end_index = raw_text.rfind('}') + 1
+        
+        if json_start_index != -1 and json_end_index != -1:
+            clean_json_text = raw_text[json_start_index:json_end_index]
+            lead_data = json.loads(clean_json_text)
+        else:
+            lead_data = {"summary": "Could not summarize conversation.", "contact": "N/A", "details": "N/A"}
+
         sheet = GSHEET_CLIENT.open(GSHEET_NAME).sheet1
         timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        
         summary = lead_data.get('summary', 'N/A')
         contact = lead_data.get('contact', 'N/A')
-        details = f"Event: {lead_data.get('event_type', 'N/A')}, Guests: {lead_data.get('guest_count', 'N/A')}, Date: {lead_data.get('event_date', 'N/A')}"
+        details = lead_data.get('details', 'N/A')
+        
         row = [timestamp, summary, contact, details]
         sheet.append_row(row)
-        print("--- Successfully logged lead to Google Sheet.")
+        print("--- Successfully logged conversation summary to Google Sheet.")
+
     except Exception as e:
-        print(f"--- Error logging lead to Google Sheet: {e}")
+        print(f"--- Error logging conversation summary to Google Sheet: {e}")
 
 # --- API Routes ---
 @app.route("/")
@@ -136,32 +156,19 @@ def chat():
     user_question = data.get('message')
     chat_history = data.get('history', [])
     if not user_question: return jsonify({"error": "No message provided."}), 400
-    try:
-        history_text = "\n".join([f"{'User' if msg['role'] == 'user' else 'Assistant'}: {msg['text']}" for msg in chat_history])
-        
-        safe_knowledge_text = KNOWLEDGE_BASE_TEXT[:20000]
+    
+    def generate_stream():
+        try:
+            history_text = "\n".join([f"{'User' if msg['role'] == 'user' else 'Assistant'}: {msg['text']}" for msg in chat_history])
+            safe_knowledge_text = KNOWLEDGE_BASE_TEXT[:20000]
 
-        prompt = f"""You are a proactive, inquisitive, and warm concierge for The Sessions House, a truly special and historic venue in Spalding. Your primary goal is to answer user questions based on the provided Context, and your secondary goal is to identify potential leads and capture their information.
+            prompt = f"""You are a warm, engaging, and highly professional concierge for The Sessions House. Your personality is one of genuine excitement and curiosity.
 
 INSTRUCTIONS:
-1.  Engage the user warmly and answer their questions using ONLY the provided 'Knowledge Base Context'.
-2.  Listen for signals that the user is a potential lead (e.g., asking about pricing, availability, bookings).
-3.  If you identify a lead, proactively ask for their name, email or phone number, type of event, number of guests, and desired date.
-4.  Your FINAL output MUST be a single, valid JSON object. This object must contain two keys: "chat_response" and "lead_data".
-5.  The "chat_response" key's value must be a friendly, conversational string to show to the user.
-6.  The "lead_data" key's value must be a JSON object containing the data you have collected. If you have not collected any data in this turn, the values should be null.
-
-EXAMPLE OUTPUT FORMAT:
-{{
-  "chat_response": "That sounds absolutely wonderful, Jane! I've made a note of that. I'll have our wedding coordinator get in touch with you shortly at jane@example.com.",
-  "lead_data": {{
-    "summary": "Wedding enquiry from Jane Doe",
-    "contact": "jane@example.com",
-    "event_type": "Wedding",
-    "guest_count": "85",
-    "event_date": "October 2026"
-  }}
-}}
+1.  Engage the user warmly, using their name if they provide it. Answer their questions using ONLY the provided 'Knowledge Base Context'.
+2.  If the conversation naturally flows towards planning an event, gently guide them. Instead of being too direct, be conversational. For example: "That sounds like a wonderful plan! To help me find the best options for you, could you tell me a little more about the kind of event you're imagining?"
+3.  Only after building some rapport, you can offer to connect them with the events team. For example: "I can see you're planning something special. If you'd like, I can have our event coordinator reach out to you directly to discuss this in more detail. Would you like me to arrange that?" Only then, if they say yes, ask for a name and email/phone number.
+4.  Your primary goal is to be helpful and conversational, not to force data collection. Let the conversation flow naturally.
 
 Conversation History:
 ---
@@ -173,44 +180,34 @@ Knowledge Base Context:
 {safe_knowledge_text}
 ---
 
-Based on all the instructions, history, and context, process the new user question below and generate your JSON output.
+Based on all the instructions, history, and context, provide a helpful and conversational answer to the new user's question.
 
 New User Question: {user_question}
 """
 
-        ai_response = model.generate_content(
-            prompt,
-            safety_settings={
-                HarmCategory.HARM_CATEGORY_HARASSMENT: HarmBlockThreshold.BLOCK_NONE,
-                HarmCategory.HARM_CATEGORY_HATE_SPEECH: HarmBlockThreshold.BLOCK_NONE,
-                HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT: HarmBlockThreshold.BLOCK_NONE,
-                HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT: HarmBlockThreshold.BLOCK_NONE,
-            }
-        )
-        
-        raw_text = ai_response.text
-        print(f"--- Raw AI Response Text: {raw_text}")
+            stream = model.generate_content(
+                prompt,
+                stream=True,
+                safety_settings={
+                    HarmCategory.HARM_CATEGORY_HARASSMENT: HarmBlockThreshold.BLOCK_NONE,
+                    HarmCategory.HARM_CATEGORY_HATE_SPEECH: HarmBlockThreshold.BLOCK_NONE,
+                    HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT: HarmBlockThreshold.BLOCK_NONE,
+                    HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT: HarmBlockThreshold.BLOCK_NONE,
+                }
+            )
+            
+            full_response_text = ""
+            for chunk in stream:
+                if chunk.text:
+                    full_response_text += chunk.text
+                    yield chunk.text
+            
+            # After the conversation turn is complete, log a summary
+            final_history = f"{history_text}\nAssistant: {full_response_text}"
+            log_conversation_summary(final_history)
 
-        # Clean the response to extract only the JSON part
-        json_start_index = raw_text.find('{')
-        json_end_index = raw_text.rfind('}') + 1
-        
-        if json_start_index != -1 and json_end_index != -1:
-            clean_json_text = raw_text[json_start_index:json_end_index]
-            response_data = json.loads(clean_json_text)
-        else:
-            # If no JSON is found, create a default error response
-            response_data = {"chat_response": "I'm sorry, I encountered an issue formatting my thoughts. Could you please try rephrasing?"}
+        except Exception as e:
+            print(f"--- [CRITICAL] Error in /chat stream: {e}")
+            yield "I'm sorry, an error occurred while I was thinking. Please try again."
 
-
-        chat_response_for_user = response_data.get("chat_response", "I'm sorry, I'm having trouble forming a response right now.")
-        lead_data_to_log = response_data.get("lead_data")
-
-        if lead_data_to_log and any(lead_data_to_log.values()):
-            log_lead_to_sheet(lead_data_to_log)
-        
-        return jsonify({"response": chat_response_for_user})
-
-    except Exception as e:
-        print(f"--- [CRITICAL] Error in /chat route: {e}")
-        return jsonify({"error": "An error occurred while I was thinking. Please try again."}), 500
+    return Response(stream_with_context(generate_stream()), mimetype='text/plain')
