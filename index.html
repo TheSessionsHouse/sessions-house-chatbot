@@ -5,7 +5,6 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>The Sessions House - AI Concierge</title>
     <style>
-        /* --- Color Palette from thesessionshouse.com --- */
         :root {
             --background-dark: #1a1a1a;
             --text-light: #f0f0f0;
@@ -14,9 +13,7 @@
             --user-bubble: #2c3e50;
             --bot-bubble: #3a3a3a;
         }
-
         @import url('https://fonts.googleapis.com/css2?family=Lora:ital,wght@0,400;0,700;1,400&family=Roboto:wght@300;400&display=swap');
-
         body {
             font-family: 'Roboto', sans-serif;
             background-color: var(--background-dark);
@@ -27,7 +24,6 @@
             align-items: center;
             height: 100vh;
         }
-
         #chat-container {
             width: 90%;
             max-width: 600px;
@@ -40,27 +36,14 @@
             overflow: hidden;
             box-shadow: 0 5px 25px rgba(0,0,0,0.5);
         }
-
         #chat-header {
             background-color: #252525;
             padding: 15px;
             border-bottom: 1px solid var(--border-color);
             text-align: center;
         }
-
-        #chat-header h1 {
-            margin: 0;
-            font-family: 'Lora', serif;
-            font-size: 1.5em;
-            color: var(--accent-gold);
-        }
-        
-        #chat-header p {
-            margin: 5px 0 0;
-            font-size: 0.8em;
-            color: #aaa;
-        }
-
+        #chat-header h1 { margin: 0; font-family: 'Lora', serif; font-size: 1.5em; color: var(--accent-gold); }
+        #chat-header p { margin: 5px 0 0; font-size: 0.8em; color: #aaa; }
         #message-area {
             flex-grow: 1;
             padding: 20px;
@@ -68,93 +51,50 @@
             display: flex;
             flex-direction: column;
         }
-
         .message {
             max-width: 75%;
             padding: 10px 15px;
             border-radius: 18px;
             margin-bottom: 10px;
             line-height: 1.4;
+            white-space: pre-wrap;
         }
-
         .user-message {
             background-color: var(--user-bubble);
             color: white;
             align-self: flex-end;
             border-bottom-right-radius: 4px;
         }
-
         .bot-message {
             background-color: var(--bot-bubble);
             color: var(--text-light);
             align-self: flex-start;
             border-bottom-left-radius: 4px;
         }
-        
-        .bot-thinking {
-            align-self: flex-start;
-        }
-        
+        .bot-thinking { align-self: flex-start; }
         .bot-thinking span {
-            display: inline-block;
-            width: 8px;
-            height: 8px;
-            border-radius: 50%;
-            background: #888;
-            margin: 0 2px;
-            animation: bounce 1.4s infinite ease-in-out both;
+            display: inline-block; width: 8px; height: 8px; border-radius: 50%;
+            background: #888; margin: 0 2px; animation: bounce 1.4s infinite ease-in-out both;
         }
-        
         .bot-thinking span:nth-child(1) { animation-delay: -0.32s; }
         .bot-thinking span:nth-child(2) { animation-delay: -0.16s; }
-        
-        @keyframes bounce {
-            0%, 80%, 100% { transform: scale(0); }
-            40% { transform: scale(1.0); }
-        }
-
+        @keyframes bounce { 0%, 80%, 100% { transform: scale(0); } 40% { transform: scale(1.0); } }
         #input-area {
-            display: flex;
-            padding: 15px;
-            border-top: 1px solid var(--border-color);
-            background-color: #252525;
+            display: flex; padding: 15px; border-top: 1px solid var(--border-color); background-color: #252525;
         }
-
         #user-input {
-            flex-grow: 1;
-            border: 1px solid #444;
-            background-color: #333;
-            color: var(--text-light);
-            padding: 10px;
-            border-radius: 20px;
-            font-size: 1em;
-            margin-right: 10px;
+            flex-grow: 1; border: 1px solid #444; background-color: #333; color: var(--text-light);
+            padding: 10px; border-radius: 20px; font-size: 1em; margin-right: 10px;
         }
-
-        #user-input:focus {
-            outline: none;
-            border-color: var(--accent-gold);
-        }
-
+        #user-input:focus { outline: none; border-color: var(--accent-gold); }
         #send-button {
-            border: none;
-            background-color: var(--accent-gold);
-            color: white;
-            font-size: 1em;
-            padding: 10px 20px;
-            border-radius: 20px;
-            cursor: pointer;
-            transition: background-color 0.2s;
+            border: none; background-color: var(--accent-gold); color: white; font-size: 1em;
+            padding: 10px 20px; border-radius: 20px; cursor: pointer; transition: background-color 0.2s;
         }
-
-        #send-button:hover {
-            background-color: #a5845e;
-        }
-
+        #send-button:hover { background-color: #a5845e; }
     </style>
 </head>
 <body>
-
     <div id="chat-container">
         <div id="chat-header">
             <h1>AI Concierge</h1>
@@ -176,22 +116,24 @@
         const userInput = document.getElementById('user-input');
         const messageArea = document.getElementById('message-area');
         const sendButton = document.getElementById('send-button');
-
-        // --- IMPORTANT: This is the URL to your live AI server on Render ---
         const API_URL = "https://sessions-house-chatbot.onrender.com/chat";
 
-        // Function to add a message to the chat window
+        // Variable to store the entire conversation history
+        let chatHistory = [];
+
+        // Add the initial bot message to the history
+        const initialBotMessage = document.querySelector('.bot-message').textContent;
+        chatHistory.push({ role: 'bot', text: initialBotMessage });
+
         function addMessage(sender, text) {
             const messageElement = document.createElement('div');
             messageElement.classList.add('message');
             messageElement.classList.add(sender === 'user' ? 'user-message' : 'bot-message');
             messageElement.textContent = text;
             messageArea.appendChild(messageElement);
-            // Scroll to the bottom
             messageArea.scrollTop = messageArea.scrollHeight;
         }
         
-        // Function to show the "bot is thinking" indicator
         function showThinkingIndicator() {
             const thinkingElement = document.createElement('div');
             thinkingElement.classList.add('bot-thinking');
@@ -201,47 +143,51 @@
             messageArea.scrollTop = messageArea.scrollHeight;
         }
         
-        // Function to remove the "bot is thinking" indicator
         function removeThinkingIndicator() {
             const indicator = document.getElementById('thinking-indicator');
-            if (indicator) {
-                indicator.remove();
-            }
+            if (indicator) indicator.remove();
         }
 
         // Handle form submission
         chatForm.addEventListener('submit', async (event) => {
-            event.preventDefault(); // Prevent page reload
+            event.preventDefault();
             
             const userText = userInput.value.trim();
             if (userText === '') return;
 
-            // Display user's message immediately
             addMessage('user', userText);
             userInput.value = '';
-            sendButton.disabled = true; // Disable button while waiting for response
+            sendButton.disabled = true;
             showThinkingIndicator();
 
+            // Add user message to history
+            chatHistory.push({ role: 'user', text: userText });
+
             try {
-                // Send the message to the AI server
+                // Send the new message AND the history to the API
                 const response = await fetch(API_URL, {
                     method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json'
-                    },
-                    body: JSON.stringify({ message: userText })
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ 
+                        message: userText,
+                        history: chatHistory 
+                    })
                 });
 
                 removeThinkingIndicator();
 
                 if (!response.ok) {
-                    throw new Error(`API Error: ${response.statusText}`);
+                    // Try to get more detailed error from the response body
+                    const errorData = await response.json().catch(() => ({ error: response.statusText }));
+                    throw new Error(errorData.error || `API Error: ${response.statusText}`);
                 }
 
                 const data = await response.json();
                 
                 if (data.response) {
                     addMessage('bot', data.response);
+                    // Add bot response to history
+                    chatHistory.push({ role: 'bot', text: data.response });
                 } else if (data.error) {
                     addMessage('bot', `Sorry, an error occurred: ${data.error}`);
                 }
@@ -251,11 +197,10 @@
                 console.error("Failed to fetch from API:", error);
                 addMessage('bot', "I'm having trouble connecting to my brain right now. Please try again in a moment.");
             } finally {
-                sendButton.disabled = false; // Re-enable the button
+                sendButton.disabled = false;
                 userInput.focus();
             }
         });
     </script>
-
 </body>
 </html>
