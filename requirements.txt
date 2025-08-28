@@ -4,3 +4,8 @@ Flask-Cors
 google-generativeai
 python-dotenv
 PyMuPDF
+requests
+beautifulsoup4
+gspread
+oauth2client
+google-auth-httplib2
