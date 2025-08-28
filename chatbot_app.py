@@ -82,23 +82,26 @@ def load_knowledge_base():
     all_text = []
     current_char_count = 0
 
-    # 1. Load from local files
+    # 1. Load from local files (RECURSIVELY)
     if os.path.isdir(KNOWLEDGE_DIR):
-        for filename in sorted(os.listdir(KNOWLEDGE_DIR)): # Sort to ensure consistent load order
+        for root, dirs, files in os.walk(KNOWLEDGE_DIR):
+            for filename in sorted(files): # Sort to ensure consistent load order
+                if current_char_count >= SAFE_CHAR_LIMIT:
+                    print("--- Character limit reached, skipping remaining files.")
+                    break
+                file_path = os.path.join(root, filename)
+                try:
+                    text = ""
+                    if filename.lower().endswith('.pdf'):
+                        with fitz.open(file_path) as doc: text = "".join(page.get_text() for page in doc)
+                    elif filename.lower().endswith('.txt'):
+                        with open(file_path, 'r', encoding='utf-8') as f: text = f.read()
+                    if text:
+                        all_text.append(text)
+                        current_char_count += len(text)
+                except Exception as e: print(f"--- Error processing file {filename}: {e}")
             if current_char_count >= SAFE_CHAR_LIMIT:
-                print("--- Character limit reached, skipping remaining files.")
                 break
-            file_path = os.path.join(KNOWLEDGE_DIR, filename)
-            try:
-                text = ""
-                if filename.lower().endswith('.pdf'):
-                    with fitz.open(file_path) as doc: text = "".join(page.get_text() for page in doc)
-                elif filename.lower().endswith('.txt'):
-                    with open(file_path, 'r', encoding='utf-8') as f: text = f.read()
-                if text:
-                    all_text.append(text)
-                    current_char_count += len(text)
-            except Exception as e: print(f"--- Error processing file {filename}: {e}")
     
     # 2. Load from URLs in the config file
     try:
@@ -212,3 +215,4 @@ Based on all the instructions, history, and context, provide a helpful and conve
             yield "I'm sorry, an error occurred while I was thinking. Please try again."
 
     return Response(stream_with_context(generate_stream()), mimetype='text/plain')
+
