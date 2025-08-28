@@ -43,7 +43,7 @@ try:
     creds_json_str = os.environ.get("GOOGLE_CREDENTIALS_JSON")
     if not creds_json_str: raise ValueError("GOOGLE_CREDENTIALS_JSON not found.")
     creds_info = json.loads(creds_json_str)
-    scopes = ["[https://www.googleapis.com/auth/spreadsheets](https://www.googleapis.com/auth/spreadsheets)", "[https://www.googleapis.com/auth/drive](https://www.googleapis.com/auth/drive)"]
+    scopes = ["https://www.googleapis.com/auth/spreadsheets", "https://www.googleapis.com/auth/drive"]
     creds = Credentials.from_service_account_info(creds_info, scopes=scopes)
     GSHEET_CLIENT = gspread.authorize(creds)
     print("--- Google Sheets client configured successfully.")
@@ -191,10 +191,8 @@ New User Question: {user_question}
         raw_text = ai_response.text
         print(f"--- Raw AI Response Text: {raw_text}")
 
-        # ** THE FIX IS HERE: Clean the response before parsing **
-        # Find the start of the JSON object
+        # Clean the response to extract only the JSON part
         json_start_index = raw_text.find('{')
-        # Find the end of the JSON object
         json_end_index = raw_text.rfind('}') + 1
         
         if json_start_index != -1 and json_end_index != -1:
