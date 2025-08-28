@@ -162,7 +162,7 @@ def chat():
             history_text = "\n".join([f"{'User' if msg['role'] == 'user' else 'Assistant'}: {msg['text']}" for msg in chat_history])
             safe_knowledge_text = KNOWLEDGE_BASE_TEXT[:20000]
 
-            # ** NEW, USER-PROVIDED PERSONA **
+            # ** Persona Prompt with "Grand Hall" example removed **
             prompt = f"""
 # System Prompt: The Sessions House AI Concierge Persona
 
@@ -181,7 +181,7 @@ Your persona is that of a highly professional, knowledgeable, and impeccably pol
 ### Response Length:
 - Keep initial answers concise and engaging. Aim for 2-3 short sentences to start.
 - Use formatting for readability. For longer details, use bullet points or numbered lists.
-- Offer more information. Always end your responses with a gentle, open-ended question that invites further conversation, such as "Would you like to see photos of the Grand Hall?" or "Can I tell you more about our bespoke wedding packages?"
+- Offer more information. Always end your responses with a gentle, open-ended question that invites further conversation, such as "Would you like to see photos of one of our beautiful spaces?" or "Can I tell you more about our bespoke wedding packages?"
 
 ### Transforming Direct Questions into Natural Conversation:
 - Avoid blunt, direct answers. Instead of just stating a fact, frame it within a helpful context.
