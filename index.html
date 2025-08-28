@@ -71,14 +71,6 @@
             align-self: flex-start;
             border-bottom-left-radius: 4px;
         }
-        .bot-thinking { align-self: flex-start; }
-        .bot-thinking span {
-            display: inline-block; width: 8px; height: 8px; border-radius: 50%;
-            background: #888; margin: 0 2px; animation: bounce 1.4s infinite ease-in-out both;
-        }
-        .bot-thinking span:nth-child(1) { animation-delay: -0.32s; }
-        .bot-thinking span:nth-child(2) { animation-delay: -0.16s; }
-        @keyframes bounce { 0%, 80%, 100% { transform: scale(0); } 40% { transform: scale(1.0); } }
         #input-area {
             display: flex; padding: 15px; border-top: 1px solid var(--border-color); background-color: #252525;
         }
@@ -118,53 +110,34 @@
         const sendButton = document.getElementById('send-button');
         const API_URL = "https://sessions-house-chatbot.onrender.com/chat";
 
-        // Variable to store the entire conversation history
         let chatHistory = [];
-
-        // Add the initial bot message to the history
         const initialBotMessage = document.querySelector('.bot-message').textContent;
         chatHistory.push({ role: 'bot', text: initialBotMessage });
 
-        function addMessage(sender, text) {
+        function createMessageElement(sender) {
             const messageElement = document.createElement('div');
             messageElement.classList.add('message');
             messageElement.classList.add(sender === 'user' ? 'user-message' : 'bot-message');
-            messageElement.textContent = text;
             messageArea.appendChild(messageElement);
-            messageArea.scrollTop = messageArea.scrollHeight;
-        }
-        
-        function showThinkingIndicator() {
-            const thinkingElement = document.createElement('div');
-            thinkingElement.classList.add('bot-thinking');
-            thinkingElement.id = 'thinking-indicator';
-            thinkingElement.innerHTML = '<span></span><span></span><span></span>';
-            messageArea.appendChild(thinkingElement);
-            messageArea.scrollTop = messageArea.scrollHeight;
-        }
-        
-        function removeThinkingIndicator() {
-            const indicator = document.getElementById('thinking-indicator');
-            if (indicator) indicator.remove();
+            return messageElement;
         }
 
-        // Handle form submission
         chatForm.addEventListener('submit', async (event) => {
             event.preventDefault();
-            
             const userText = userInput.value.trim();
             if (userText === '') return;
 
-            addMessage('user', userText);
+            const userMessageElement = createMessageElement('user');
+            userMessageElement.textContent = userText;
+            chatHistory.push({ role: 'user', text: userText });
+            
             userInput.value = '';
             sendButton.disabled = true;
-            showThinkingIndicator();
 
-            // Add user message to history
-            chatHistory.push({ role: 'user', text: userText });
+            const botMessageElement = createMessageElement('bot');
+            botMessageElement.textContent = '...'; // Thinking indicator
 
             try {
-                // Send the new message AND the history to the API
                 const response = await fetch(API_URL, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
@@ -174,28 +147,30 @@
                     })
                 });
 
-                removeThinkingIndicator();
-
-                if (!response.ok) {
-                    // Try to get more detailed error from the response body
-                    const errorData = await response.json().catch(() => ({ error: response.statusText }));
-                    throw new Error(errorData.error || `API Error: ${response.statusText}`);
+                if (!response.ok || !response.body) {
+                    throw new Error('Network response was not ok or body is missing.');
                 }
 
-                const data = await response.json();
+                botMessageElement.textContent = ''; // Clear thinking indicator
+                const reader = response.body.getReader();
+                const decoder = new TextDecoder();
+                let fullResponse = '';
+
+                while (true) {
+                    const { value, done } = await reader.read();
+                    if (done) break;
+                    
+                    const chunk = decoder.decode(value, { stream: true });
+                    fullResponse += chunk;
+                    botMessageElement.textContent = fullResponse; // Update in real-time
+                    messageArea.scrollTop = messageArea.scrollHeight;
+                }
                 
-                if (data.response) {
-                    addMessage('bot', data.response);
-                    // Add bot response to history
-                    chatHistory.push({ role: 'bot', text: data.response });
-                } else if (data.error) {
-                    addMessage('bot', `Sorry, an error occurred: ${data.error}`);
-                }
+                chatHistory.push({ role: 'bot', text: fullResponse });
 
             } catch (error) {
-                removeThinkingIndicator();
                 console.error("Failed to fetch from API:", error);
-                addMessage('bot', "I'm having trouble connecting to my brain right now. Please try again in a moment.");
+                botMessageElement.textContent = "I'm having trouble connecting to my brain right now. Please try again in a moment.";
             } finally {
                 sendButton.disabled = false;
                 userInput.focus();
@@ -204,3 +179,4 @@
     </script>
 </body>
 </html>
+
