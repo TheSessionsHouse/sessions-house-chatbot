@@ -43,7 +43,7 @@ try:
     creds_json_str = os.environ.get("GOOGLE_CREDENTIALS_JSON")
     if not creds_json_str: raise ValueError("GOOGLE_CREDENTIALS_JSON not found.")
     creds_info = json.loads(creds_json_str)
-    scopes = ["https://www.googleapis.com/auth/spreadsheets", "https://www.googleapis.com/auth/drive"]
+    scopes = ["[https://www.googleapis.com/auth/spreadsheets](https://www.googleapis.com/auth/spreadsheets)", "[https://www.googleapis.com/auth/drive](https://www.googleapis.com/auth/drive)"]
     creds = Credentials.from_service_account_info(creds_info, scopes=scopes)
     GSHEET_CLIENT = gspread.authorize(creds)
     print("--- Google Sheets client configured successfully.")
@@ -139,9 +139,6 @@ def chat():
     try:
         history_text = "\n".join([f"{'User' if msg['role'] == 'user' else 'Assistant'}: {msg['text']}" for msg in chat_history])
         
-        # ** THE FIX IS HERE: Truncate the knowledge base to a safe size **
-        # A safe character limit to avoid API errors. 32k is a common token limit.
-        # We'll use 20000 characters to be very safe.
         safe_knowledge_text = KNOWLEDGE_BASE_TEXT[:20000]
 
         prompt = f"""You are a proactive, inquisitive, and warm concierge for The Sessions House, a truly special and historic venue in Spalding. Your primary goal is to answer user questions based on the provided Context, and your secondary goal is to identify potential leads and capture their information.
@@ -191,9 +188,23 @@ New User Question: {user_question}
             }
         )
         
-        print(f"--- Raw AI Response Text: {ai_response.text}")
+        raw_text = ai_response.text
+        print(f"--- Raw AI Response Text: {raw_text}")
 
-        response_data = json.loads(ai_response.text)
+        # ** THE FIX IS HERE: Clean the response before parsing **
+        # Find the start of the JSON object
+        json_start_index = raw_text.find('{')
+        # Find the end of the JSON object
+        json_end_index = raw_text.rfind('}') + 1
+        
+        if json_start_index != -1 and json_end_index != -1:
+            clean_json_text = raw_text[json_start_index:json_end_index]
+            response_data = json.loads(clean_json_text)
+        else:
+            # If no JSON is found, create a default error response
+            response_data = {"chat_response": "I'm sorry, I encountered an issue formatting my thoughts. Could you please try rephrasing?"}
+
+
         chat_response_for_user = response_data.get("chat_response", "I'm sorry, I'm having trouble forming a response right now.")
         lead_data_to_log = response_data.get("lead_data")
 
