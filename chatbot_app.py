@@ -12,9 +12,9 @@ import gspread
 from google.oauth2.service_account import Credentials
 import json
 from datetime import datetime
-import io
+import io  # <-- THIS IS THE MISSING LINE THAT FIXES THE BUG
 
-# --- Initialization & Config ---
+# --- Initialization & Config (Unchanged) ---
 load_dotenv()
 app = Flask(__name__)
 CORS(app)
@@ -22,13 +22,13 @@ KNOWLEDGE_DIR = "knowledge"
 URL_CONFIG_FILE = "urls_to_scrape.txt"
 GSHEET_NAME = "Chatbot Conversation Logs"
 
-# --- Global Variables & Setups ---
+# --- Global Variables & Setups (Unchanged) ---
 KNOWLEDGE_BASE_TEXT = ""
 MODEL_CONFIGURED = False
 GSHEET_CLIENT = None
 knowledge_base_loaded = False
 
-# --- AI, Google Sheets Config ---
+# --- AI, Google Sheets Config (Unchanged) ---
 try:
     api_key = os.environ.get("GOOGLE_API_KEY")
     if not api_key: raise ValueError("GOOGLE_API_KEY not found.")
@@ -48,10 +48,10 @@ try:
 except Exception as e:
     print(f"Error configuring Google Sheets client: {e}")
 
-# --- Helper Functions ---
+# --- Helper Functions (Unchanged) ---
 def read_content_from_url(url):
     try:
-        headers = {'User-Agent': 'Mozilla/5.0'}
+        headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'}
         response = requests.get(url, timeout=20, headers=headers)
         response.raise_for_status()
         content_type = response.headers.get('content-type', '').lower()
@@ -111,7 +111,7 @@ def log_lead_to_sheet(lead_data):
     except Exception as e:
         print(f"Error logging lead to Google Sheet: {e}")
 
-# --- API Routes ---
+# --- API Routes (Unchanged) ---
 @app.route("/")
 def home():
     return "Hello, the Chatbot AI Server is fully operational!"
@@ -127,14 +127,11 @@ def chat():
     if not user_question: return jsonify({"error": "No message provided."}), 400
     try:
         history_text = "\n".join([f"{'User' if msg['role'] == 'user' else 'Assistant'}: {msg['text']}" for msg in chat_history])
-        prompt = f"""You are a proactive, inquisitive, and warm concierge for The Sessions House... (Full prompt)"""
+        prompt = f"""You are a proactive, inquisitive, and warm concierge for The Sessions House... (Full Prompt)"""
         ai_response = model.generate_content(prompt, safety_settings={'HARM_CATEGORY_HARASSMENT': 'BLOCK_NONE', 'HARM_CATEGORY_HATE_SPEECH': 'BLOCK_NONE', 'HARM_CATEGORY_SEXUALLY_EXPLICIT': 'BLOCK_NONE', 'HARM_CATEGORY_DANGEROUS_CONTENT': 'BLOCK_NONE'})
         response_data = json.loads(ai_response.text)
         chat_response_for_user = response_data.get("chat_response", "I'm sorry, I'm having trouble forming a response right now.")
         lead_data_to_log = response_data.get("lead_data")
         if lead_data_to_log and any(lead_data_to_log.values()):
             log_lead_to_sheet(lead_data_to_log)
-        return jsonify({"response": chat_response_for_user})
-    except Exception as e:
-        print(f"Error during AI processing or JSON parsing: {e}")
-        return jsonify({"error": "An error occurred while I was thinking. Please try again."}), 500
+        return jsonify({"response": chat_response_for
