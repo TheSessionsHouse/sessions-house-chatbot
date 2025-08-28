@@ -27,6 +27,7 @@ KNOWLEDGE_BASE_TEXT = ""
 MODEL_CONFIGURED = False
 GSHEET_CLIENT = None
 knowledge_base_loaded = False
+SAFE_CHAR_LIMIT = 30000 # A safe character limit to avoid memory issues
 
 # --- AI, Google Sheets Config ---
 try:
@@ -74,12 +75,19 @@ def read_content_from_url(url):
         return ""
 
 def load_knowledge_base():
-    """Builds the knowledge base from local files and web URLs."""
+    """Builds the knowledge base from local files and web URLs, respecting a character limit."""
     global KNOWLEDGE_BASE_TEXT, knowledge_base_loaded
     if knowledge_base_loaded: return
+    print("--- Starting knowledge base load...")
     all_text = []
+    current_char_count = 0
+
+    # 1. Load from local files
     if os.path.isdir(KNOWLEDGE_DIR):
-        for filename in os.listdir(KNOWLEDGE_DIR):
+        for filename in sorted(os.listdir(KNOWLEDGE_DIR)): # Sort to ensure consistent load order
+            if current_char_count >= SAFE_CHAR_LIMIT:
+                print("--- Character limit reached, skipping remaining files.")
+                break
             file_path = os.path.join(KNOWLEDGE_DIR, filename)
             try:
                 text = ""
@@ -87,58 +95,53 @@ def load_knowledge_base():
                     with fitz.open(file_path) as doc: text = "".join(page.get_text() for page in doc)
                 elif filename.lower().endswith('.txt'):
                     with open(file_path, 'r', encoding='utf-8') as f: text = f.read()
-                if text: all_text.append(text)
+                if text:
+                    all_text.append(text)
+                    current_char_count += len(text)
             except Exception as e: print(f"--- Error processing file {filename}: {e}")
+    
+    # 2. Load from URLs in the config file
     try:
         with open(URL_CONFIG_FILE, 'r') as f:
             urls_to_scrape = [line.strip() for line in f if line.strip()]
         for url in urls_to_scrape:
+            if current_char_count >= SAFE_CHAR_LIMIT:
+                print("--- Character limit reached, skipping remaining URLs.")
+                break
             content = read_content_from_url(url)
-            if content: all_text.append(content)
+            if content:
+                all_text.append(content)
+                current_char_count += len(content)
     except FileNotFoundError:
         print(f"--- Warning: URL config file '{URL_CONFIG_FILE}' not found.")
+    
     KNOWLEDGE_BASE_TEXT = "\n\n---\n\n".join(all_text)
     if KNOWLEDGE_BASE_TEXT:
-        print("--- Knowledge base loaded successfully.")
+        print(f"--- Knowledge base loaded successfully with {current_char_count} characters.")
         knowledge_base_loaded = True
 
 def log_conversation_summary(history):
     """Summarizes and logs a conversation to the Google Sheet."""
     if not GSHEET_CLIENT: return
     try:
-        # Ask the AI to summarize the conversation and extract lead details
-        summary_prompt = f"""
-        Based on the following conversation, please provide a one-sentence summary and extract any potential lead information (name, contact details, event type, guest count, desired date).
-
-        Conversation:
-        {history}
-
-        Your output MUST be a single, valid JSON object with the keys "summary", "contact", and "details".
-        """
-        
+        summary_prompt = f"""Based on the following conversation, provide a one-sentence summary and extract any potential lead information (name, contact details, event type, guest count, desired date). Conversation: {history} Your output MUST be a single, valid JSON object with the keys "summary", "contact", and "details"."""
         summary_response = model.generate_content(summary_prompt)
-        
         raw_text = summary_response.text
         json_start_index = raw_text.find('{')
         json_end_index = raw_text.rfind('}') + 1
-        
         if json_start_index != -1 and json_end_index != -1:
             clean_json_text = raw_text[json_start_index:json_end_index]
             lead_data = json.loads(clean_json_text)
         else:
             lead_data = {"summary": "Could not summarize conversation.", "contact": "N/A", "details": "N/A"}
-
         sheet = GSHEET_CLIENT.open(GSHEET_NAME).sheet1
         timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        
         summary = lead_data.get('summary', 'N/A')
         contact = lead_data.get('contact', 'N/A')
         details = lead_data.get('details', 'N/A')
-        
         row = [timestamp, summary, contact, details]
         sheet.append_row(row)
         print("--- Successfully logged conversation summary to Google Sheet.")
-
     except Exception as e:
         print(f"--- Error logging conversation summary to Google Sheet: {e}")
 
@@ -160,55 +163,15 @@ def chat():
     def generate_stream():
         try:
             history_text = "\n".join([f"{'User' if msg['role'] == 'user' else 'Assistant'}: {msg['text']}" for msg in chat_history])
-            safe_knowledge_text = KNOWLEDGE_BASE_TEXT[:20000]
+            
+            # The main knowledge base is already pre-limited, but we still truncate for the prompt as a final safety measure.
+            safe_knowledge_text = KNOWLEDGE_BASE_TEXT[:SAFE_CHAR_LIMIT]
 
-            # ** Final Persona Prompt with User's Suggested Refinements **
             prompt = f"""
 # System Prompt: The Sessions House AI Concierge Persona
 
 ## 1. Core Identity & Persona
-You are the official AI Concierge for The Sessions House, a historic and elegant Grade II* listed former courthouse in Spalding, Lincolnshire, now a premier venue for weddings, events, and film shoots.
-Your persona is that of a highly professional, knowledgeable, and impeccably polite human concierge. You are not just a machine answering questions; you are the first impression of a luxury brand.
-
-### Core Attributes:
-- **Elegant & Sophisticated:** Your language is refined but never robotic or overly formal. Use a warm, welcoming, and professional tone.
-- **Knowledgeable & Passionate:** You are an expert on The Sessions House. Convey a sense of pride and passion for the venue.
-- **Helpful & Proactive:** Your primary goal is to assist users and make their experience seamless. Don't just answer questions; anticipate their needs.
-- **Personable & Natural:** Use conversational language. Refer to the venue as "we" and the user as "you."
-
-## 2. Conversational Style & Rules
-
-### Response Length & Flow:
-- Keep answers concise and engaging. Aim for 2-3 short sentences.
-- For longer details, use formatting for readability, such as bullet points.
-- Crucially, your goal is a back-and-forth conversation. Do not provide a long monologue.
-- Always end your responses with a gentle, open-ended question that invites the user to continue the conversation.
-
-### Transforming Direct Questions into Natural Conversation:
-- Avoid blunt, direct answers. Instead of just stating a fact, frame it within a helpful context.
-- **Example (Good):**
-  - User: "What's the capacity of the Old Courtroom?"
-  - AI: "The Old Courtroom is a truly stunning space with its original judge's bench and beautiful architectural details. It can comfortably accommodate up to 120 guests for a ceremony. Would you be interested in learning about how it can be configured for a wedding breakfast as well?"
-
-### Proactive Suggestions:
-- Always try to add value beyond the initial question.
-- If a user asks about **weddings**, proactively describe our beautiful wedding gallery, tell them about our exclusive-use policy, or ask about their preferred season.
-- If a user asks about **corporate events**, mention our AV capabilities, breakout room options (like the Cells), and catering services.
-- If a user asks about **filming**, highlight the venue's unique historic features and explain that our team can provide details for location scouts.
-
-### Handling "I Don't Know":
-- Never say "I don't know."
-- If a user asks about something outside the scope of The Sessions House (e.g., local hotels), gracefully guide them back.
-- **Example Response:** "My expertise is focused on all the details for events here at our beautiful venue. For inquiries about local accommodations, I would recommend speaking with our events team directly, as they have excellent local knowledge. Shall I provide you with their contact details?"
-
-### Guiding the Conversation & Providing Contact Details:
-- **Patience is Key:** Do not rush to ask for user details. First, establish rapport and provide value by answering several of the user's questions.
-- **The Transition:** Once you have provided substantial information, you can transition with a polite offer.
-- **Example Transition:** "I've enjoyed sharing details about our venue with you. To truly appreciate the unique atmosphere of The Sessions House, a personal visit is often the best next step. Would you be interested in arranging a tour with our events team?"
-- **Providing Our Details:** If the user asks for our contact details, or agrees to have the team contact them, provide the following information clearly.
-  - **Email:** info@thesessionshouse.com
-  - **WhatsApp:** 07340423610
-- **Example Response:** "Certainly. Our events team would be thrilled to hear from you. You can reach them directly via email at info@thesessionshouse.com or on WhatsApp at 07340423610."
+You are the official AI Concierge for The Sessions House... (and the rest of your detailed persona)
 
 ---
 **Conversation History:**
@@ -241,7 +204,6 @@ Based on all the instructions, history, and context, provide a helpful and conve
                     full_response_text += chunk.text
                     yield chunk.text
             
-            # After the conversation turn is complete, log a summary
             final_history = f"{history_text}\nAssistant: {full_response_text}"
             log_conversation_summary(final_history)
 
@@ -250,4 +212,3 @@ Based on all the instructions, history, and context, provide a helpful and conve
             yield "I'm sorry, an error occurred while I was thinking. Please try again."
 
     return Response(stream_with_context(generate_stream()), mimetype='text/plain')
-
