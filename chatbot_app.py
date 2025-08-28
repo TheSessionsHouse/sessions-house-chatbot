@@ -139,6 +139,11 @@ def chat():
     try:
         history_text = "\n".join([f"{'User' if msg['role'] == 'user' else 'Assistant'}: {msg['text']}" for msg in chat_history])
         
+        # ** THE FIX IS HERE: Truncate the knowledge base to a safe size **
+        # A safe character limit to avoid API errors. 32k is a common token limit.
+        # We'll use 20000 characters to be very safe.
+        safe_knowledge_text = KNOWLEDGE_BASE_TEXT[:20000]
+
         prompt = f"""You are a proactive, inquisitive, and warm concierge for The Sessions House, a truly special and historic venue in Spalding. Your primary goal is to answer user questions based on the provided Context, and your secondary goal is to identify potential leads and capture their information.
 
 INSTRUCTIONS:
@@ -168,7 +173,7 @@ Conversation History:
 
 Knowledge Base Context:
 ---
-{KNOWLEDGE_BASE_TEXT}
+{safe_knowledge_text}
 ---
 
 Based on all the instructions, history, and context, process the new user question below and generate your JSON output.
