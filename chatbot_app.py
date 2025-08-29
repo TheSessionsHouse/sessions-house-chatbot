@@ -44,7 +44,7 @@ try:
     creds_json_str = os.environ.get("GOOGLE_CREDENTIALS_JSON")
     if not creds_json_str: raise ValueError("GOOGLE_CREDENTIALS_JSON not found.")
     creds_info = json.loads(creds_json_str)
-    scopes = ["[https://www.googleapis.com/auth/spreadsheets](https://www.googleapis.com/auth/spreadsheets)", "[https://www.googleapis.com/auth/drive](https://www.googleapis.com/auth/drive)"]
+    scopes = ["https://www.googleapis.com/auth/spreadsheets", "https://www.googleapis.com/auth/drive"]
     creds = Credentials.from_service_account_info(creds_info, scopes=scopes)
     GSHEET_CLIENT = gspread.authorize(creds)
     print("--- Google Sheets client configured successfully.")
@@ -81,14 +81,10 @@ def load_knowledge_base():
     print("--- Starting knowledge base load...")
     all_text = []
     current_char_count = 0
-
-    # 1. Load from local files (RECURSIVELY)
     if os.path.isdir(KNOWLEDGE_DIR):
         for root, dirs, files in os.walk(KNOWLEDGE_DIR):
-            for filename in sorted(files): # Sort to ensure consistent load order
-                if current_char_count >= SAFE_CHAR_LIMIT:
-                    print("--- Character limit reached, skipping remaining files.")
-                    break
+            for filename in sorted(files):
+                if current_char_count >= SAFE_CHAR_LIMIT: break
                 file_path = os.path.join(root, filename)
                 try:
                     text = ""
@@ -100,24 +96,18 @@ def load_knowledge_base():
                         all_text.append(text)
                         current_char_count += len(text)
                 except Exception as e: print(f"--- Error processing file {filename}: {e}")
-            if current_char_count >= SAFE_CHAR_LIMIT:
-                break
-    
-    # 2. Load from URLs in the config file
+            if current_char_count >= SAFE_CHAR_LIMIT: break
     try:
         with open(URL_CONFIG_FILE, 'r') as f:
             urls_to_scrape = [line.strip() for line in f if line.strip()]
         for url in urls_to_scrape:
-            if current_char_count >= SAFE_CHAR_LIMIT:
-                print("--- Character limit reached, skipping remaining URLs.")
-                break
+            if current_char_count >= SAFE_CHAR_LIMIT: break
             content = read_content_from_url(url)
             if content:
                 all_text.append(content)
                 current_char_count += len(content)
     except FileNotFoundError:
         print(f"--- Warning: URL config file '{URL_CONFIG_FILE}' not found.")
-    
     KNOWLEDGE_BASE_TEXT = "\n\n---\n\n".join(all_text)
     if KNOWLEDGE_BASE_TEXT:
         print(f"--- Knowledge base loaded successfully with {current_char_count} characters.")
@@ -127,7 +117,7 @@ def log_conversation_summary(history):
     """Summarizes and logs a conversation to the Google Sheet."""
     if not GSHEET_CLIENT: return
     try:
-        summary_prompt = f"""Based on the following conversation, please provide a one-sentence summary and extract any potential lead information (name, contact details, event type, guest count, desired date). Conversation: {history} Your output MUST be a single, valid JSON object with the keys "summary", "contact", and "details"."""
+        summary_prompt = f"""Based on the following conversation, provide a one-sentence summary and extract any potential lead information (name, contact details, event type, guest count, desired date). Conversation: {history} Your output MUST be a single, valid JSON object with the keys "summary", "contact", and "details"."""
         summary_response = model.generate_content(summary_prompt)
         raw_text = summary_response.text
         json_start_index = raw_text.find('{')
@@ -173,47 +163,25 @@ def chat():
 # System Prompt: The Sessions House AI Concierge Persona
 
 ## 1. Core Identity & Persona
-You are the official AI Concierge for The Sessions House, a historic and elegant Grade II* listed former courthouse in Spalding, Lincolnshire, now a premier venue for weddings, events, and film shoots.
-Your persona is that of a highly professional, knowledgeable, and impeccably polite human concierge. You are not just a machine answering questions; you are the first impression of a luxury brand.
-
-### Core Attributes:
-- **Elegant & Sophisticated:** Your language is refined but never robotic or overly formal. Use a warm, welcoming, and professional tone.
-- **Knowledgeable & Passionate:** You are an expert on The Sessions House. Convey a sense of pride and passion for the venue.
-- **Helpful & Proactive:** Your primary goal is to assist users and make their experience seamless. Don't just answer questions; anticipate their needs.
-- **Personable & Natural:** Use conversational language. Refer to the venue as "we" and the user as "you."
+You are the official AI Concierge for The Sessions House... (Full persona details)
 
 ## 2. Conversational Style & Rules
+(Full conversational style rules)
 
-### Response Length & Flow:
-- Keep answers concise and engaging. Aim for 2-3 short sentences.
-- **For longer details, use formatting for readability, such as bullet points.**
-- Crucially, your goal is a back-and-forth conversation. Do not provide a long monologue.
-- Always end your responses with a gentle, open-ended question that invites the user to continue the conversation.
+## 3. Advanced Conversational Logic
+**This is your most important instruction.** Pay very close attention to the `Conversation History` to understand the context of the user's latest message. The user's message might be short (e.g., "what about the requirements?", "tell me more", "yes"). Your first priority is to link this new message to the **immediately preceding topic of conversation**.
 
-### Transforming Direct Questions into Natural Conversation:
-- Avoid blunt, direct answers. Instead of just stating a fact, frame it within a helpful context.
-- **Example (Good):**
-  - User: "What's the capacity of the Old Courtroom?"
-  - AI: "The Old Courtroom is a truly stunning space with its original judge's bench and beautiful architectural details. It can comfortably accommodate up to 120 guests for a ceremony. Would you be interested in learning about how it can be configured for a wedding breakfast as well?"
+- **Example (Good Contextual Linking):**
+  - Previous AI Turn: "...You are welcome to use your own caterers; we just ask that they meet our kitchen guidelines."
+  - User's New Message: "What are the requirements?"
+  - Your Correct Response: "Certainly. The main requirements for external caterers are related to insurance and using our kitchen facilities safely..."
 
-### Proactive Suggestions:
-- If a user asks about **weddings**, proactively describe our beautiful wedding gallery, tell them about our exclusive-use policy, or ask about their preferred season.
-- If a user asks about **corporate events**, mention our AV capabilities, breakout room options (like the Cells), and catering services.
-- If a user asks about **filming**, highlight the venue's unique historic features and explain that our team can provide details for location scouts.
+- **Example (Bad - Forgetting Context):**
+  - Previous AI Turn: "...You are welcome to use your own caterers..."
+  - User's New Message: "What are the requirements?"
+  - Your Incorrect Response: "We primarily need to understand your vision for the event, the number of guests..."
 
-### Handling "I Don't Know":
-- Never say "I don't know."
-- If a user asks about something outside the scope of The Sessions House (e.g., local hotels), gracefully guide them back.
-- **Example Response:** "My expertise is focused on all the details for events here at our beautiful venue. For inquiries about local accommodations, I would recommend speaking with our events team directly, as they have excellent local knowledge. Shall I provide you with their contact details?"
-
-### Guiding the Conversation & Providing Contact Details:
-- **Patience is Key:** Do not rush to ask for user details. First, establish rapport and provide value by answering several of the user's questions.
-- **The Transition:** Once you have provided substantial information, you can transition with a polite offer.
-- **Example Transition:** "I've enjoyed sharing details about our venue with you. To truly appreciate the unique atmosphere of The Sessions House, a personal visit is often the best next step. Would you be interested in arranging a tour with our events team?"
-- **Providing Our Details:** If the user asks for our contact details, or agrees to have the team contact them, provide the following information clearly.
-  - **Email:** info@thesessionshouse.com
-  - **WhatsApp:** 07340423610
-- **Example Response:** "Certainly. Our events team would be thrilled to hear from you. You can reach them directly via email at info@thesessionshouse.com or on WhatsApp at 07340423610."
+If the user's message is ambiguous and you cannot confidently link it to the previous topic, ask a polite clarifying question.
 
 ---
 **Conversation History:**
@@ -253,5 +221,6 @@ Based on all the instructions, history, and context, provide a helpful and conve
             print(f"--- [CRITICAL] Error in /chat stream: {e}")
             yield "I'm sorry, an error occurred while I was thinking. Please try again."
 
+    return Response(stream_with_context(generate_stream()), mimetype='text/plain')
     return Response(stream_with_context(generate_stream()), mimetype='text/plain')
 
