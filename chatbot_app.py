@@ -244,3 +244,4 @@ Based on all the instructions, history, and context, provide a helpful and conve
 
     return Response(stream_with_context(generate_stream()), mimetype='text/plain')
 
+
