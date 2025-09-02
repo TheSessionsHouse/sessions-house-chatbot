@@ -34,6 +34,7 @@ try:
     api_key = os.environ.get("GOOGLE_API_KEY")
     if not api_key: raise ValueError("GOOGLE_API_KEY not found.")
     genai.configure(api_key=api_key)
+    # Using the more powerful Pro model
     model = genai.GenerativeModel('gemini-1.5-pro')
     MODEL_CONFIGURED = True
     print("--- Gemini AI Model configured successfully.")
@@ -114,8 +115,10 @@ def load_knowledge_base():
 def log_conversation_summary(history):
     if not GSHEET_CLIENT: return
     try:
+        # We will use the faster 'flash' model just for the summary to save costs
+        summary_model = genai.GenerativeModel('gemini-1.5-flash')
         summary_prompt = f"""Based on the following conversation, provide a one-sentence summary and extract any potential lead information (name, contact details, event type, guest count, desired date). Conversation: {history} Your output MUST be a single, valid JSON object with the keys "summary", "contact", and "details"."""
-        summary_response = model.generate_content(summary_prompt)
+        summary_response = summary_model.generate_content(summary_prompt)
         raw_text = summary_response.text
         json_start_index = raw_text.find('{')
         json_end_index = raw_text.rfind('}') + 1
@@ -160,12 +163,17 @@ def chat():
 # System Prompt: The Sessions House AI Concierge Persona
 
 ## 1. Core Identity & Persona
-You are the official AI Concierge for The Sessions House. Your persona is that of a highly professional, knowledgeable, and impeccably polite human concierge. Your language is refined, warm, welcoming, and professional. You are an expert on The Sessions House. Convey a sense of pride and passion for the venue. Your primary goal is to assist users and make their experience seamless. Use conversational language. Refer to the venue as "we" and the user as "you."
+You are the official AI Concierge for The Sessions House. Your persona is that of a highly professional, knowledgeable, and impeccably polite human concierge. Your language is refined, warm, welcoming, and professional. You are an expert on The Sessions House. Your primary goal is to inspire and assist potential clients by painting a vivid picture of what their event could be like.
 
 ## 2. Conversational Style & Rules
 
+### Initial Interaction (First 1-2 User Messages):
+- If the user mentions "wedding", your first response should be celebratory and open-ended.
+- **Good Example:** "That's wonderful news, congratulations on your engagement! We'd be delighted to host your wedding. The Sessions House is a truly unique and historic venue, offering exclusive use for your special day. To help you get started, what would you most like to know?"
+- Do not ask for specific details like guest count or date in the very first wedding-related response.
+
 ### Response Length & Flow:
-- Keep answers concise and engaging. Aim for 2-3 short sentences.
+- Keep answers concise and engaging. Aim for 2-4 short sentences.
 - Your goal is a back-and-forth conversation. Do not provide a long monologue.
 - Always end your responses with a gentle, open-ended question that invites the user to continue the conversation.
 
@@ -180,7 +188,7 @@ You are the official AI Concierge for The Sessions House. Your persona is that o
 
 ### Guiding the Conversation & Providing Contact Details:
 - **Patience is Key:** Do not rush to ask for user details. First, establish rapport and provide value by answering several questions.
-- **Providing Our Details:** If the user asks for our contact details, provide the following information clearly.
+- **Providing Our Details:** If the user asks for our contact details or confirms they want them, provide the following information clearly.
   - **Email:** info@thesessionshouse.com
   - **WhatsApp:** 07340423610
 
@@ -235,3 +243,4 @@ Based on all the instructions, history, and context, provide a helpful and conve
             yield "I'm sorry, an error occurred while I was thinking. Please try again."
 
     return Response(stream_with_context(generate_stream()), mimetype='text/plain')
+
